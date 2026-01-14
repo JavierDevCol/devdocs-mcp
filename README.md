@@ -255,37 +255,89 @@ pip install -e .
 python -c "from devdocs_mcp.server import main; print('OK')"
 ```
 
-### Opción 3: Modo Híbrido (Máximo Rendimiento)
+### Opción 3: Modo Híbrido (Máximo Rendimiento) ⚡
 
-El modo híbrido combina un servidor DevDocs local con la API remota para obtener el mejor rendimiento:
+El modo híbrido combina un servidor DevDocs local con la API remota para obtener el mejor rendimiento posible:
 
-| Fuente | Latencia | Uso |
-|--------|----------|-----|
-| **Local** | ~5ms | DevDocs Docker local |
-| **Caché** | <1ms | Disco local |
-| **Remoto** | ~300ms | API de devdocs.io |
+| Fuente | Latencia | Descripción |
+|--------|----------|-------------|
+| **🏠 Local** | ~5ms | Servidor DevDocs en Docker local |
+| **💾 Caché** | <1ms | Disco local (persistente) |
+| **🌐 Remoto** | ~300ms | API de devdocs.io (fallback) |
 
 #### ¿Por qué usar modo híbrido?
 
 - ⚡ **60x más rápido** que la API remota
-- 🔌 **Funciona offline** con documentaciones descargadas
+- 🔌 **Funciona offline** con documentaciones descargadas localmente
 - 💾 **Caché inteligente** - una vez descargado, siempre disponible
+- 🔄 **Fallback automático** - si local falla, usa remoto
+
+#### Requisitos previos
+
+- Docker Desktop instalado y corriendo
+- ~2GB RAM adicional para el servidor DevDocs local
+- ~15-20GB disco si descargas todas las documentaciones (o menos si solo algunas)
 
 #### Instalación modo híbrido
 
 ```bash
-# 1. Clonar o navegar al directorio
+# 1. Clonar el repositorio
+git clone https://github.com/JavierDevCol/devdocs-mcp.git
 cd devdocs-mcp
 
-# 2. Iniciar con Docker Compose (modo híbrido)
+# 2. Construir la imagen MCP
+docker build -t devdocs-mcp:latest -f docker/Dockerfile .
+
+# 3. Iniciar en modo híbrido (MCP + DevDocs local)
 docker compose -f docker/docker-compose.hybrid.yml up -d
 
-# 3. Acceder a DevDocs local para descargar documentaciones
-# Abre http://localhost:9292 en tu navegador
-# Haz clic en "Select documentation" y descarga las que necesites
+# 4. Verificar que ambos contenedores están corriendo
+docker ps
+# Deberías ver: devdocs-mcp-hybrid y devdocs-local-server
 ```
 
-#### Configuración para Claude/Copilot (modo híbrido)
+#### Primera configuración: Descargar documentaciones
+
+Una vez iniciado, necesitas descargar las documentaciones que quieras usar localmente:
+
+1. Abre **http://localhost:9292** en tu navegador
+2. Haz clic en **"Select documentation"** (esquina superior izquierda)
+3. Busca y habilita las documentaciones que necesites (ej: Python, JavaScript, React)
+4. Espera a que se descarguen (barra de progreso)
+5. ¡Listo! Las docs quedan persistidas en el volumen Docker
+
+> 💡 **Tip**: Las documentaciones más comunes ocupan:
+> - Python: ~50MB
+> - JavaScript: ~30MB
+> - React: ~15MB
+> - Node.js: ~25MB
+
+#### Configuración para Claude Desktop (modo híbrido)
+
+Añade esto a tu `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "devdocs": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "devdocs-network",
+        "-e", "DEVDOCS_HYBRID=true",
+        "-e", "DEVDOCS_LOCAL_URL=http://devdocs-local:9292",
+        "-e", "DEVDOCS_MODE=auto",
+        "-v", "devdocs-cache:/root/.cache/devdocs-mcp",
+        "devdocs-mcp:latest"
+      ]
+    }
+  }
+}
+```
+
+#### Configuración para GitHub Copilot/VS Code (modo híbrido)
+
+Añade esto a tu `settings.json` de VS Code:
 
 ```json
 {
@@ -298,6 +350,7 @@ docker compose -f docker/docker-compose.hybrid.yml up -d
           "--network", "devdocs-network",
           "-e", "DEVDOCS_HYBRID=true",
           "-e", "DEVDOCS_LOCAL_URL=http://devdocs-local:9292",
+          "-e", "DEVDOCS_MODE=auto",
           "-v", "devdocs-cache:/root/.cache/devdocs-mcp",
           "devdocs-mcp:latest"
         ]
@@ -309,11 +362,52 @@ docker compose -f docker/docker-compose.hybrid.yml up -d
 
 #### Variables de entorno del modo híbrido
 
-| Variable | Valores | Descripción |
-|----------|---------|-------------|
-| `DEVDOCS_HYBRID` | `true`/`false` | Habilitar modo híbrido |
-| `DEVDOCS_LOCAL_URL` | URL | URL del servidor DevDocs local |
-| `DEVDOCS_MODE` | `auto`, `local_only`, `remote_only`, `offline` | Modo de operación |
+| Variable | Valores | Default | Descripción |
+|----------|---------|---------|-------------|
+| `DEVDOCS_HYBRID` | `true` / `false` | `false` | Habilita el modo híbrido |
+| `DEVDOCS_LOCAL_URL` | URL | `http://localhost:9292` | URL del servidor DevDocs local |
+| `DEVDOCS_MODE` | Ver tabla abajo | `auto` | Modo de operación |
+
+#### Modos de operación (`DEVDOCS_MODE`)
+
+| Modo | Comportamiento | Uso recomendado |
+|------|----------------|-----------------|
+| `auto` | Local → Cache → Remote | **Recomendado** - Mejor de ambos mundos |
+| `local_only` | Solo servidor local | Cuando tienes todo descargado localmente |
+| `remote_only` | Solo API remota | Desactivar modo híbrido temporalmente |
+| `offline` | Solo caché | Sin conexión a internet |
+
+#### Comandos útiles modo híbrido
+
+```bash
+# Ver logs del servidor DevDocs local
+docker logs -f devdocs-local-server
+
+# Ver logs del MCP
+docker logs -f devdocs-mcp-hybrid
+
+# Reiniciar solo el servidor local
+docker restart devdocs-local-server
+
+# Parar todo
+docker compose -f docker/docker-compose.hybrid.yml down
+
+# Parar y eliminar volúmenes (⚠️ borra documentaciones descargadas)
+docker compose -f docker/docker-compose.hybrid.yml down -v
+```
+
+#### Alternativa: Usar perfil en docker-compose.yml
+
+También puedes usar el archivo `docker-compose.yml` principal con el perfil `hybrid`:
+
+```bash
+# Iniciar con perfil hybrid
+docker compose -f docker/docker-compose.yml --profile hybrid up -d
+
+# Variables de entorno requeridas
+export DEVDOCS_HYBRID=true
+export DEVDOCS_LOCAL_URL=http://devdocs-local:9292
+```
 
 ---
 
