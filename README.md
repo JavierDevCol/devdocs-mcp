@@ -257,11 +257,50 @@ python -c "from devdocs_mcp.server import main; print('OK')"
 
 ### Opción 3: Modo Híbrido (Máximo Rendimiento) ⚡
 
-El modo híbrido combina un servidor DevDocs local con la API remota para obtener el mejor rendimiento posible:
+El modo híbrido combina un servidor DevDocs local con la API remota para obtener el mejor rendimiento posible.
+
+> ⚠️ **IMPORTANTE**: El modo híbrido requiere ejecutar **DOS contenedores Docker**:
+> 1. **devdocs-mcp** - El servidor MCP que se comunica con Claude/Copilot
+> 2. **devdocs-local** - Una instancia completa de DevDocs corriendo localmente
+
+#### Arquitectura del modo híbrido
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    docker-compose.hybrid.yml                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌────────────────────┐         ┌─────────────────────────────────┐ │
+│  │  devdocs-mcp       │  ────►  │  devdocs-local                  │ │
+│  │  (Servidor MCP)    │  ~5ms   │  (DevDocs completo en Docker)   │ │
+│  │                    │         │  http://localhost:9292          │ │
+│  └────────────────────┘         └─────────────────────────────────┘ │
+│          │                                    │                      │
+│          ▼                                    ▼                      │
+│  Volumen: devdocs-cache            Volumen: devdocs-data            │
+│  (Caché del MCP)                   (Docs descargadas ~50MB-20GB)    │
+│                                                                      │
+│  Si local no responde ────────►  Fallback a API remota (~300ms)     │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Comparación: Normal vs Híbrido
+
+| Característica | Modo Normal | Modo Híbrido |
+|----------------|-------------|--------------|
+| **Contenedores** | 1 (solo MCP) | 2 (MCP + DevDocs local) |
+| **RAM requerida** | ~128MB | ~2GB |
+| **Disco** | ~50MB caché | ~50MB - 20GB (según docs) |
+| **Latencia** | ~300ms (API remota) | ~5ms (local) |
+| **Offline** | Solo caché previo | ✅ Completo |
+| **Setup** | Simple | Requiere descargar docs |
+
+#### Flujo de datos
 
 | Fuente | Latencia | Descripción |
 |--------|----------|-------------|
-| **🏠 Local** | ~5ms | Servidor DevDocs en Docker local |
+| **🏠 Local** | ~5ms | Servidor DevDocs corriendo en Docker |
 | **💾 Caché** | <1ms | Disco local (persistente) |
 | **🌐 Remoto** | ~300ms | API de devdocs.io (fallback) |
 
@@ -275,8 +314,8 @@ El modo híbrido combina un servidor DevDocs local con la API remota para obtene
 #### Requisitos previos
 
 - Docker Desktop instalado y corriendo
-- ~2GB RAM adicional para el servidor DevDocs local
-- ~15-20GB disco si descargas todas las documentaciones (o menos si solo algunas)
+- **~2GB RAM adicional** para el servidor DevDocs local
+- **~50MB - 20GB disco** según cuántas documentaciones descargues
 
 #### Instalación modo híbrido
 
@@ -288,29 +327,36 @@ cd devdocs-mcp
 # 2. Construir la imagen MCP
 docker build -t devdocs-mcp:latest -f docker/Dockerfile .
 
-# 3. Iniciar en modo híbrido (MCP + DevDocs local)
+# 3. Iniciar en modo híbrido (levanta AMBOS contenedores)
 docker compose -f docker/docker-compose.hybrid.yml up -d
 
-# 4. Verificar que ambos contenedores están corriendo
+# 4. Verificar que AMBOS contenedores están corriendo
 docker ps
-# Deberías ver: devdocs-mcp-hybrid y devdocs-local-server
+# Deberías ver:
+#   - devdocs-mcp-hybrid      (servidor MCP)
+#   - devdocs-local-server    (DevDocs web en puerto 9292)
 ```
 
-#### Primera configuración: Descargar documentaciones
+#### Primera configuración: Descargar documentaciones en DevDocs local
 
-Una vez iniciado, necesitas descargar las documentaciones que quieras usar localmente:
+El servidor DevDocs local (`devdocs-local-server`) es una instancia completa de la aplicación DevDocs. 
+**Debes descargar manualmente las documentaciones** que quieras tener disponibles localmente:
 
-1. Abre **http://localhost:9292** en tu navegador
+1. Abre **http://localhost:9292** en tu navegador (interfaz web de DevDocs)
 2. Haz clic en **"Select documentation"** (esquina superior izquierda)
-3. Busca y habilita las documentaciones que necesites (ej: Python, JavaScript, React)
-4. Espera a que se descarguen (barra de progreso)
-5. ¡Listo! Las docs quedan persistidas en el volumen Docker
+3. Busca y **habilita** las documentaciones que necesites (ej: Python, JavaScript, React)
+4. Espera a que se descarguen (verás una barra de progreso)
+5. ¡Listo! Las docs quedan guardadas en el volumen Docker `devdocs-data`
 
-> 💡 **Tip**: Las documentaciones más comunes ocupan:
-> - Python: ~50MB
-> - JavaScript: ~30MB
-> - React: ~15MB
-> - Node.js: ~25MB
+> 💡 **Tip**: Tamaño aproximado de documentaciones populares:
+> | Documentación | Tamaño |
+> |---------------|--------|
+> | Python 3.12 | ~50MB |
+> | JavaScript | ~30MB |
+> | React | ~15MB |
+> | Node.js | ~25MB |
+> | TypeScript | ~20MB |
+> | **Todas** | ~15-20GB |
 
 #### Configuración para Claude Desktop (modo híbrido)
 
