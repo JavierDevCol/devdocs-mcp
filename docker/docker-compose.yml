@@ -6,8 +6,8 @@
 services:
   devdocs-mcp:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
     container_name: devdocs-mcp-server
     
     # El MCP usa stdio, necesita stdin_open y tty

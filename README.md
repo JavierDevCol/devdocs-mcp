@@ -152,10 +152,19 @@ devdocs-mcp/
 │       ├── api.py           # DevDocs API client
 │       ├── cache.py         # Disk-based cache system
 │       └── utils.py         # HTML to Markdown converter
-├── Dockerfile               # Docker image definition
-├── docker-compose.yml       # Docker Compose config
+├── docker/
+│   ├── Dockerfile           # Docker image definition
+│   └── docker-compose.yml   # Docker Compose config
+├── scripts/
+│   ├── docker-build.bat     # Build script (Windows)
+│   └── docker-build.sh      # Build script (Linux/Mac)
+├── config/
+│   └── claude_config_example.json  # MCP config examples
+├── tests/
+│   ├── test_mcp.py          # MCP server tests
+│   └── test_mcp_protocol.py # Protocol tests
 ├── pyproject.toml           # Python project config
-├── claude_config_example.json
+├── LICENSE
 └── README.md
 ```
 
@@ -211,7 +220,7 @@ devdocs-mcp/
 cd devdocs-mcp
 
 # 2. Construir la imagen
-docker build -t devdocs-mcp:latest .
+docker build -t devdocs-mcp:latest -f docker/Dockerfile .
 
 # 3. Verificar que se creó
 docker images devdocs-mcp
@@ -816,7 +825,7 @@ docker info
 docker images devdocs-mcp
 
 # Reconstruir la imagen
-docker build -t devdocs-mcp:latest .
+docker build -t devdocs-mcp:latest -f docker/Dockerfile .
 ```
 
 ### No aparecen las herramientas en Copilot

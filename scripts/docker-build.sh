@@ -2,9 +2,11 @@
 # ══════════════════════════════════════════════════════════════
 #                Build DevDocs MCP Docker Image
 # ══════════════════════════════════════════════════════════════
+# Run this script from the project root directory:
+#   ./scripts/docker-build.sh
 
 echo "Building DevDocs MCP Docker image..."
-docker build -t devdocs-mcp:latest .
+docker build -t devdocs-mcp:latest -f docker/Dockerfile .
 
 if [ $? -eq 0 ]; then
     echo ""

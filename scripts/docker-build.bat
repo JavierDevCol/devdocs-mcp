@@ -2,9 +2,11 @@
 REM ══════════════════════════════════════════════════════════════
 REM                Build DevDocs MCP Docker Image
 REM ══════════════════════════════════════════════════════════════
+REM Run this script from the project root directory:
+REM   scripts\docker-build.bat
 
 echo Building DevDocs MCP Docker image...
-docker build -t devdocs-mcp:latest .
+docker build -t devdocs-mcp:latest -f docker/Dockerfile .
 
 if %ERRORLEVEL% EQU 0 (
     echo.
