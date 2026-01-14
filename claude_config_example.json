@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    
+    "_comment": "=== OPCIÓN 1: Ejecutar localmente con Python ===",
+    "devdocs-local": {
+      "command": "python",
+      "args": ["-m", "devdocs_mcp.server"],
+      "cwd": "E:/DevDocs/devdocs-mcp/src"
+    },
+
+    "_comment2": "=== OPCIÓN 2: Ejecutar en Docker ===",
+    "devdocs": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-v", "devdocs-cache:/root/.cache/devdocs-mcp",
+        "devdocs-mcp:latest"
+      ]
+    }
+  }
+}
