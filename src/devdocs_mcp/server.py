@@ -1,7 +1,9 @@
 """
 DevDocs MCP Server
 Expone herramientas para acceder a documentación de DevDocs desde Claude
+Soporta modo híbrido: Local (Docker) → Caché → Remoto (API)
 """
+import os
 import json
 import asyncio
 from typing import Any
@@ -17,7 +19,12 @@ from .utils import truncate_text
 
 # Crear instancias globales
 cache = DevDocsCache()
-api = DevDocsAPI(cache)
+
+# Configurar modo híbrido desde variables de entorno
+hybrid_mode = os.getenv("DEVDOCS_HYBRID", "false").lower() == "true"
+local_url = os.getenv("DEVDOCS_LOCAL_URL", "http://localhost:9292")
+
+api = DevDocsAPI(cache, hybrid_mode=hybrid_mode, local_url=local_url)
 server = Server("devdocs-mcp")
 
 
@@ -306,6 +313,63 @@ Indica qué tecnologías tienen el índice cacheado y cuántas páginas.
                 "properties": {},
                 "required": []
             }
+        ),
+        # ═══════════════════════════════════════════════════════════
+        #                    HYBRID MODE TOOLS
+        # ═══════════════════════════════════════════════════════════
+        Tool(
+            name="get_hybrid_status",
+            description="""Obtiene el estado del modo híbrido.
+Muestra:
+- Si el modo híbrido está habilitado
+- El modo actual (auto, local_only, remote_only, offline)
+- Si el servidor DevDocs local está disponible
+- URL del servidor local
+- Estadísticas del caché
+
+El modo híbrido permite usar un servidor DevDocs local (Docker) para acceso ultra-rápido (~5ms)
+con fallback automático a la API remota (~300ms).""",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="configure_hybrid_mode",
+            description="""Configura el modo híbrido de operación.
+
+Modos disponibles:
+- "auto": Local → Cache → Remote (fallback automático, recomendado)
+- "local_only": Solo usa servidor local, falla si no disponible
+- "remote_only": Solo usa API remota (comportamiento original)
+- "offline": Solo usa caché, nunca hace peticiones de red
+
+También puedes configurar la URL del servidor DevDocs local.
+
+Ejemplos:
+- mode="auto" → Prioriza local, fallback a remoto
+- mode="offline" → Funciona sin conexión usando el caché
+- local_url="http://devdocs:9292" → Servidor en Docker""",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "description": "Modo de operación: auto, local_only, remote_only, offline",
+                        "enum": ["auto", "local_only", "remote_only", "offline"]
+                    },
+                    "local_url": {
+                        "type": "string",
+                        "description": "URL del servidor DevDocs local (ej: http://localhost:9292)"
+                    },
+                    "enable": {
+                        "type": "boolean",
+                        "description": "Habilitar (true) o deshabilitar (false) el modo híbrido"
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -340,6 +404,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await handle_export_documentation(arguments)
         elif name == "offline_mode_status":
             result = await handle_offline_mode_status(arguments)
+        # ═══ HYBRID MODE TOOLS ═══
+        elif name == "get_hybrid_status":
+            result = await handle_get_hybrid_status(arguments)
+        elif name == "configure_hybrid_mode":
+            result = await handle_configure_hybrid_mode(arguments)
         else:
             result = f"Error: Herramienta '{name}' no encontrada"
         
@@ -710,6 +779,117 @@ async def handle_offline_mode_status(args: dict) -> str:
             lines.append(f"- **{tech}**: {info['pages_cached']} páginas ({info['size_mb']:.2f} MB) | Índice: {has_index}")
     else:
         lines.append("\n_No hay documentaciones en caché. Usa `get_page_content` o `get_documentation_index` para cachear._")
+    
+    return '\n'.join(lines)
+
+
+# ═══════════════════════════════════════════════════════════════
+#                    HYBRID MODE HANDLERS
+# ═══════════════════════════════════════════════════════════════
+
+async def handle_get_hybrid_status(args: dict) -> str:
+    """Muestra estado del modo híbrido"""
+    status = api.get_hybrid_status()
+    
+    hybrid_enabled = status.get('hybrid_enabled', False)
+    mode = status.get('mode', 'remote_only')
+    local_available = status.get('local_available', False)
+    local_url = status.get('local_url', 'N/A')
+    last_source = status.get('last_source', 'N/A')
+    
+    # Emoji para estado
+    enabled_emoji = "✅" if hybrid_enabled else "❌"
+    local_emoji = "✅" if local_available else "❌"
+    
+    # Descripción del modo
+    mode_descriptions = {
+        "auto": "Local → Cache → Remote (fallback automático)",
+        "local_only": "Solo servidor local",
+        "remote_only": "Solo API remota",
+        "offline": "Solo caché (sin red)"
+    }
+    
+    lines = [
+        "## 🔄 Estado del Modo Híbrido\n",
+        f"| Configuración | Valor |",
+        f"|---------------|-------|",
+        f"| **Modo Híbrido** | {enabled_emoji} {'Habilitado' if hybrid_enabled else 'Deshabilitado'} |",
+        f"| **Modo Actual** | `{mode}` - {mode_descriptions.get(mode, mode)} |",
+        f"| **Servidor Local** | {local_emoji} {local_url} |",
+        f"| **Última Fuente** | `{last_source}` |",
+    ]
+    
+    if hybrid_enabled and status.get('cache_stats'):
+        cache_stats = status['cache_stats']
+        lines.extend([
+            f"\n### 📦 Caché",
+            f"- **Tamaño:** {cache_stats.get('total_size_mb', 0):.2f} MB",
+            f"- **Archivos:** {cache_stats.get('total_files', 0)}",
+        ])
+    
+    lines.extend([
+        "\n### 💡 Consejos",
+        "- Usa `configure_hybrid_mode` para cambiar la configuración",
+        "- Modo `auto` es recomendado para mejor rendimiento",
+        "- Si tienes DevDocs local (Docker), el acceso es ~60x más rápido",
+    ])
+    
+    return '\n'.join(lines)
+
+
+async def handle_configure_hybrid_mode(args: dict) -> str:
+    """Configura el modo híbrido"""
+    mode = args.get('mode')
+    local_url = args.get('local_url')
+    enable = args.get('enable')
+    
+    changes = []
+    
+    # Habilitar/deshabilitar
+    if enable is not None:
+        if enable:
+            api.enable_hybrid_mode(local_url)
+            changes.append("✅ Modo híbrido habilitado")
+        else:
+            api.disable_hybrid_mode()
+            changes.append("❌ Modo híbrido deshabilitado")
+    
+    # Configurar URL local
+    if local_url and enable is not False:
+        api.set_local_url(local_url)
+        changes.append(f"🔗 URL local: `{local_url}`")
+    
+    # Cambiar modo
+    if mode:
+        result = api.set_hybrid_mode(mode)
+        if result.get('error'):
+            changes.append(f"⚠️ Error: {result['error']}")
+        else:
+            mode_descriptions = {
+                "auto": "Local → Cache → Remote",
+                "local_only": "Solo servidor local",
+                "remote_only": "Solo API remota",
+                "offline": "Solo caché"
+            }
+            changes.append(f"🔄 Modo: `{mode}` ({mode_descriptions.get(mode, '')})")
+    
+    if not changes:
+        return "⚠️ No se especificaron cambios. Usa `mode`, `local_url` o `enable`."
+    
+    # Obtener estado final
+    status = api.get_hybrid_status()
+    
+    lines = [
+        "## ⚙️ Configuración Actualizada\n",
+        "### Cambios aplicados:",
+        *[f"- {change}" for change in changes],
+        "\n### Estado actual:",
+        f"- **Híbrido:** {'✅ Habilitado' if status.get('hybrid_enabled') else '❌ Deshabilitado'}",
+        f"- **Modo:** `{status.get('mode', 'N/A')}`",
+        f"- **Local disponible:** {'✅ Sí' if status.get('local_available') else '❌ No'}",
+    ]
+    
+    return '\n'.join(lines)
     
     return '\n'.join(lines)
 

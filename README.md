@@ -107,7 +107,7 @@ MCP utiliza **stdio (Standard Input/Output)** para la comunicación:
 
 ## ✨ Características
 
-### 🔧 12 Herramientas Disponibles
+### 🔧 14 Herramientas Disponibles
 
 | Herramienta | Descripción |
 |-------------|-------------|
@@ -123,6 +123,8 @@ MCP utiliza **stdio (Standard Input/Output)** para la comunicación:
 | `get_examples` | Extrae solo los bloques de código de una página |
 | `export_documentation` | Exporta documentación completa a archivos locales |
 | `offline_mode_status` | Muestra qué documentaciones están disponibles offline |
+| `get_hybrid_status` | ⚡ Muestra estado del modo híbrido (local/remoto) |
+| `configure_hybrid_mode` | ⚡ Configura modo híbrido y URL del servidor local |
 
 ### 💾 Sistema de Caché Inteligente
 
@@ -252,6 +254,66 @@ pip install -e .
 # 3. Verificar instalación
 python -c "from devdocs_mcp.server import main; print('OK')"
 ```
+
+### Opción 3: Modo Híbrido (Máximo Rendimiento)
+
+El modo híbrido combina un servidor DevDocs local con la API remota para obtener el mejor rendimiento:
+
+| Fuente | Latencia | Uso |
+|--------|----------|-----|
+| **Local** | ~5ms | DevDocs Docker local |
+| **Caché** | <1ms | Disco local |
+| **Remoto** | ~300ms | API de devdocs.io |
+
+#### ¿Por qué usar modo híbrido?
+
+- ⚡ **60x más rápido** que la API remota
+- 🔌 **Funciona offline** con documentaciones descargadas
+- 💾 **Caché inteligente** - una vez descargado, siempre disponible
+
+#### Instalación modo híbrido
+
+```bash
+# 1. Clonar o navegar al directorio
+cd devdocs-mcp
+
+# 2. Iniciar con Docker Compose (modo híbrido)
+docker compose -f docker/docker-compose.hybrid.yml up -d
+
+# 3. Acceder a DevDocs local para descargar documentaciones
+# Abre http://localhost:9292 en tu navegador
+# Haz clic en "Select documentation" y descarga las que necesites
+```
+
+#### Configuración para Claude/Copilot (modo híbrido)
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "devdocs": {
+        "command": "docker",
+        "args": [
+          "run", "-i", "--rm",
+          "--network", "devdocs-network",
+          "-e", "DEVDOCS_HYBRID=true",
+          "-e", "DEVDOCS_LOCAL_URL=http://devdocs-local:9292",
+          "-v", "devdocs-cache:/root/.cache/devdocs-mcp",
+          "devdocs-mcp:latest"
+        ]
+      }
+    }
+  }
+}
+```
+
+#### Variables de entorno del modo híbrido
+
+| Variable | Valores | Descripción |
+|----------|---------|-------------|
+| `DEVDOCS_HYBRID` | `true`/`false` | Habilitar modo híbrido |
+| `DEVDOCS_LOCAL_URL` | URL | URL del servidor DevDocs local |
+| `DEVDOCS_MODE` | `auto`, `local_only`, `remote_only`, `offline` | Modo de operación |
 
 ---
 
@@ -594,6 +656,70 @@ Muestra qué documentaciones están disponibles offline.
 - **python~3.10**: 45 páginas (3.2 MB) | Índice: ✅
 - **spring_boot**: 89 páginas (8.1 MB) | Índice: ✅
 - **react**: 22 páginas (1.15 MB) | Índice: ✅
+```
+
+---
+
+### 13. `get_hybrid_status` ⚡ NEW
+
+Muestra el estado del modo híbrido.
+
+**Parámetros:** Ninguno
+
+**Ejemplo de uso:**
+> "¿Está habilitado el modo híbrido? ¿El servidor local está disponible?"
+
+**Respuesta:**
+```
+## 🔄 Estado del Modo Híbrido
+
+| Configuración | Valor |
+|---------------|-------|
+| **Modo Híbrido** | ✅ Habilitado |
+| **Modo Actual** | `auto` - Local → Cache → Remote (fallback automático) |
+| **Servidor Local** | ✅ http://devdocs-local:9292 |
+| **Última Fuente** | `local` |
+
+### 📦 Caché
+- **Tamaño:** 12.45 MB
+- **Archivos:** 156
+```
+
+---
+
+### 14. `configure_hybrid_mode` ⚡ NEW
+
+Configura el modo de operación híbrido.
+
+**Parámetros:**
+| Nombre | Tipo | Requerido | Descripción |
+|--------|------|-----------|-------------|
+| `mode` | string | No | `auto`, `local_only`, `remote_only`, `offline` |
+| `local_url` | string | No | URL del servidor DevDocs local |
+| `enable` | boolean | No | Habilitar/deshabilitar modo híbrido |
+
+**Modos disponibles:**
+| Modo | Descripción |
+|------|-------------|
+| `auto` | Local → Cache → Remote (recomendado) |
+| `local_only` | Solo servidor local, falla si no disponible |
+| `remote_only` | Solo API remota (comportamiento original) |
+| `offline` | Solo caché, nunca hace peticiones de red |
+
+**Ejemplo de uso:**
+> "Configura el modo híbrido para funcionar solo offline"
+
+**Respuesta:**
+```
+## ⚙️ Configuración Actualizada
+
+### Cambios aplicados:
+- 🔄 Modo: `offline` (Solo caché)
+
+### Estado actual:
+- **Híbrido:** ✅ Habilitado
+- **Modo:** `offline`
+- **Local disponible:** ✅ Sí
 ```
 
 ---

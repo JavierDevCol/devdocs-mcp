@@ -2,8 +2,19 @@
 #                    DevDocs MCP Server
 #                    Docker Compose
 # ══════════════════════════════════════════════════════════════
+#
+# Uso básico (solo MCP, API remota):
+#   docker compose up -d devdocs-mcp
+#
+# Modo híbrido (MCP + DevDocs local, ultra-rápido):
+#   docker compose --profile hybrid up -d
+#
+# ══════════════════════════════════════════════════════════════
 
 services:
+  # ─────────────────────────────────────────────────────────────
+  # Servidor MCP principal
+  # ─────────────────────────────────────────────────────────────
   devdocs-mcp:
     build:
       context: ..
@@ -14,21 +25,83 @@ services:
     stdin_open: true
     tty: true
     
+    # Variables de entorno para modo híbrido
+    environment:
+      - DEVDOCS_HYBRID=${DEVDOCS_HYBRID:-false}
+      - DEVDOCS_LOCAL_URL=${DEVDOCS_LOCAL_URL:-http://devdocs-local:9292}
+      - DEVDOCS_MODE=${DEVDOCS_MODE:-auto}
+    
     # Persistir el caché de documentación
     volumes:
       - devdocs-cache:/root/.cache/devdocs-mcp
     
+    # Conectar a la red para comunicarse con devdocs-local
+    networks:
+      - devdocs-network
+    
     # Reiniciar automáticamente si falla
     restart: unless-stopped
     
-    # Límites de recursos (opcional)
+    # Límites de recursos
     deploy:
       resources:
         limits:
           memory: 512M
         reservations:
           memory: 128M
+    
+    # Depende de devdocs-local si está habilitado
+    depends_on:
+      devdocs-local:
+        condition: service_started
+        required: false
+
+  # ─────────────────────────────────────────────────────────────
+  # Servidor DevDocs Local (modo híbrido)
+  # Acceso ultra-rápido (~5ms vs ~300ms de API remota)
+  # ─────────────────────────────────────────────────────────────
+  devdocs-local:
+    image: ghcr.io/freecodecamp/devdocs:latest
+    container_name: devdocs-local-server
+    profiles:
+      - hybrid   # Solo se inicia con --profile hybrid
+    
+    # Puerto para acceso directo (opcional, para debugging)
+    ports:
+      - "9292:9292"
+    
+    # Persistir documentaciones descargadas
+    volumes:
+      - devdocs-data:/devdocs/public/docs
+    
+    networks:
+      - devdocs-network
+    
+    # Reiniciar automáticamente
+    restart: unless-stopped
+    
+    # Límites de recursos (DevDocs usa más memoria)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9292/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  devdocs-network:
+    name: devdocs-network
 
 volumes:
   devdocs-cache:
     name: devdocs-mcp-cache
+  devdocs-data:
+    name: devdocs-local-data

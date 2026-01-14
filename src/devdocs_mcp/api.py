@@ -1,13 +1,16 @@
 """
 Cliente API para DevDocs
 Maneja las peticiones HTTP a la API de DevDocs
+Soporta modo híbrido: Local (Docker) → Caché → Remoto (API)
 """
 import json
+import os
 from typing import Optional
 import httpx
 
 from .cache import DevDocsCache
 from .utils import html_to_markdown
+from .hybrid import HybridClient, HybridMode, DataSource
 
 
 # URLs de la API de DevDocs
@@ -17,17 +20,126 @@ DEVDOCS_PAGE_URL = "https://documents.devdocs.io/{tech}/{path}.html"
 
 
 class DevDocsAPI:
-    """Cliente para la API de DevDocs con caché integrado"""
+    """Cliente para la API de DevDocs con caché integrado y modo híbrido"""
     
-    def __init__(self, cache: Optional[DevDocsCache] = None):
+    def __init__(
+        self,
+        cache: Optional[DevDocsCache] = None,
+        hybrid_mode: bool = None,
+        local_url: Optional[str] = None
+    ):
+        """
+        Inicializa el cliente de DevDocs.
+        
+        Args:
+            cache: Instancia de caché (crea una por defecto)
+            hybrid_mode: Activar modo híbrido (env: DEVDOCS_HYBRID=true)
+            local_url: URL del servidor local (env: DEVDOCS_LOCAL_URL)
+        """
         self.cache = cache or DevDocsCache()
-        # Habilitar seguimiento de redirects
+        
+        # Determinar si usar modo híbrido
+        if hybrid_mode is None:
+            hybrid_mode = os.getenv("DEVDOCS_HYBRID", "false").lower() == "true"
+        
+        self._hybrid_enabled = hybrid_mode
+        self._hybrid_client: Optional[HybridClient] = None
+        
+        if hybrid_mode:
+            self._hybrid_client = HybridClient(
+                cache=self.cache,
+                local_url=local_url
+            )
+        
+        # Cliente HTTP directo (para modo no-híbrido)
         self.client = httpx.Client(timeout=60.0, follow_redirects=True)
     
     def __del__(self):
         """Cerrar cliente HTTP al destruir"""
         if hasattr(self, 'client'):
             self.client.close()
+    
+    # ─────────────────────────────────────────────────────────
+    # Modo Híbrido - Configuración
+    # ─────────────────────────────────────────────────────────
+    
+    def enable_hybrid_mode(self, local_url: Optional[str] = None) -> dict:
+        """
+        Activa el modo híbrido.
+        
+        Args:
+            local_url: URL del servidor DevDocs local
+        
+        Returns:
+            Estado del modo híbrido
+        """
+        if not self._hybrid_client:
+            self._hybrid_client = HybridClient(
+                cache=self.cache,
+                local_url=local_url
+            )
+        elif local_url:
+            self._hybrid_client.set_local_url(local_url)
+        
+        self._hybrid_enabled = True
+        return self.get_hybrid_status()
+    
+    def disable_hybrid_mode(self) -> dict:
+        """Desactiva el modo híbrido"""
+        self._hybrid_enabled = False
+        return {"hybrid_enabled": False, "mode": "remote_only"}
+    
+    def get_hybrid_status(self) -> dict:
+        """Obtiene el estado del modo híbrido"""
+        if not self._hybrid_enabled or not self._hybrid_client:
+            return {
+                "hybrid_enabled": False,
+                "mode": "remote_only",
+                "local_available": False
+            }
+        
+        status = self._hybrid_client.get_status()
+        status["hybrid_enabled"] = True
+        return status
+    
+    def set_hybrid_mode(self, mode: str) -> dict:
+        """
+        Cambia el modo de operación híbrido.
+        
+        Args:
+            mode: auto, local_only, remote_only, offline
+        
+        Returns:
+            Estado actualizado
+        """
+        if not self._hybrid_client:
+            self.enable_hybrid_mode()
+        
+        try:
+            hybrid_mode = HybridMode(mode.lower())
+            self._hybrid_client.set_mode(hybrid_mode)
+            return self.get_hybrid_status()
+        except ValueError:
+            return {
+                "error": f"Modo inválido: {mode}. Usa: auto, local_only, remote_only, offline"
+            }
+    
+    def set_local_url(self, url: str) -> dict:
+        """
+        Configura la URL del servidor DevDocs local.
+        
+        Args:
+            url: URL del servidor (ej: http://localhost:9292)
+        
+        Returns:
+            Estado actualizado
+        """
+        if not self._hybrid_client:
+            self.enable_hybrid_mode(local_url=url)
+        else:
+            self._hybrid_client.set_local_url(url)
+        
+        return self.get_hybrid_status()
     
     # ─────────────────────────────────────────────────────────
     # Lista de documentaciones
@@ -41,6 +153,12 @@ class DevDocsAPI:
             Lista de diccionarios con info de cada documentación:
             [{"name": "Python", "slug": "python~3.10", "version": "3.10", ...}, ...]
         """
+        # Usar cliente híbrido si está habilitado
+        if self._hybrid_enabled and self._hybrid_client:
+            docs, source = self._hybrid_client.get_docs_list(force_refresh)
+            return docs
+        
+        # Modo tradicional
         # Intentar caché primero
         if not force_refresh:
             cached = self.cache.get_docs_list()
@@ -89,6 +207,12 @@ class DevDocsAPI:
         Returns:
             Diccionario con entries y types de la documentación
         """
+        # Usar cliente híbrido si está habilitado
+        if self._hybrid_enabled and self._hybrid_client:
+            index, source = self._hybrid_client.get_index(tech, force_refresh)
+            return index
+        
+        # Modo tradicional
         # Intentar caché primero
         if not force_refresh:
             cached = self.cache.get_index(tech)
@@ -178,6 +302,25 @@ class DevDocsAPI:
         # Limpiar path de anclas
         clean_path = path.split('#')[0]
         
+        # Usar cliente híbrido si está habilitado
+        if self._hybrid_enabled and self._hybrid_client:
+            html_content, source = self._hybrid_client.get_page(tech, path, force_refresh)
+            # El híbrido devuelve HTML, convertir a markdown
+            markdown = html_to_markdown(html_content)
+            web_url = f"https://devdocs.io/{tech}/{clean_path}"
+            content = f"""# {clean_path}
+
+**Fuente:** [{web_url}]({web_url}) (via {source.value})
+
+---
+
+{markdown}
+"""
+            # Guardar markdown procesado en caché
+            self.cache.save_page(tech, clean_path, content)
+            return content
+        
+        # Modo tradicional
         # Intentar caché primero
         if not force_refresh:
             cached = self.cache.get_page(tech, clean_path)

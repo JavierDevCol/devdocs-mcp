@@ -1,0 +1,84 @@
+# ══════════════════════════════════════════════════════════════
+#               DevDocs MCP Server - Modo Híbrido
+#               (Incluye servidor DevDocs local)
+# ══════════════════════════════════════════════════════════════
+#
+# Este archivo inicia automáticamente el modo híbrido con:
+# - Servidor MCP de DevDocs
+# - Servidor DevDocs local (acceso ultra-rápido)
+#
+# Uso:
+#   docker compose -f docker/docker-compose.hybrid.yml up -d
+#
+# Primera vez (descarga documentaciones en DevDocs local):
+#   1. Accede a http://localhost:9292
+#   2. Haz clic en "Select documentation"
+#   3. Descarga las docs que necesites (quedan persistidas)
+#
+# ══════════════════════════════════════════════════════════════
+
+services:
+  devdocs-mcp:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: devdocs-mcp-hybrid
+    stdin_open: true
+    tty: true
+    
+    # Modo híbrido habilitado por defecto
+    environment:
+      - DEVDOCS_HYBRID=true
+      - DEVDOCS_LOCAL_URL=http://devdocs-local:9292
+      - DEVDOCS_MODE=auto
+    
+    volumes:
+      - devdocs-cache:/root/.cache/devdocs-mcp
+    
+    networks:
+      - devdocs-network
+    
+    restart: unless-stopped
+    
+    depends_on:
+      devdocs-local:
+        condition: service_healthy
+
+  devdocs-local:
+    image: ghcr.io/freecodecamp/devdocs:latest
+    container_name: devdocs-local-server
+    
+    ports:
+      - "9292:9292"
+    
+    volumes:
+      - devdocs-data:/devdocs/public/docs
+    
+    networks:
+      - devdocs-network
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9292/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  devdocs-network:
+    name: devdocs-network
+
+volumes:
+  devdocs-cache:
+    name: devdocs-mcp-cache
+  devdocs-data:
+    name: devdocs-local-data
