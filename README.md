@@ -6,6 +6,7 @@
 [![MCP](https://img.shields.io/badge/MCP-1.2.0+-green.svg)](https://modelcontextprotocol.io/)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Author](https://img.shields.io/badge/Author-JavierDevCol-purple.svg)](https://github.com/JavierDevCol)
 
 ---
 
@@ -908,6 +909,18 @@ Este proyecto está bajo la licencia MIT. Ver [LICENSE](LICENSE) para más detal
 - [DevDocs.io](https://devdocs.io) por proporcionar la API de documentación
 - [Anthropic](https://anthropic.com) por el protocolo MCP
 - [Model Context Protocol](https://modelcontextprotocol.io) por la especificación
+
+---
+
+## 👨‍💻 Autor
+
+<div align="center">
+
+**Javier Garcia** · [@JavierDevCol](https://github.com/JavierDevCol)
+
+[![GitHub](https://img.shields.io/badge/GitHub-JavierDevCol-181717?style=for-the-badge&logo=github)](https://github.com/JavierDevCol)
+
+</div>
 
 ---
 
